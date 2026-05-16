@@ -41,4 +41,3 @@
 
 NLLB BLEU : 14.90
 NLLB chrF : 53.05
-Results saved to nllb_results.json
