@@ -6,7 +6,7 @@ from huggingface_hub import login
 import evaluate
 from tqdm import tqdm
 
-login('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')
+login('YOUR_HF_TOKEN')
 
 model_checkpoint = "Helsinki-NLP/opus-mt-en-eu"
 tokenizer = AutoTokenizer.from_pretrained(model_checkpoint)

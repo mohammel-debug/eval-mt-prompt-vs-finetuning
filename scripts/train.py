@@ -14,7 +14,7 @@ from transformers import (
 from peft import LoraConfig, get_peft_model, TaskType
 
 # HuggingFace login 
-login('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')
+login('YOUR_HF_TOKEN')
 
 # Load datasets
 flores_en = load_dataset("openlanguagedata/flores_plus", "eng_Latn")

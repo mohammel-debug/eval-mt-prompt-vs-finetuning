@@ -7,7 +7,7 @@ from huggingface_hub import login
 import evaluate
 from tqdm import tqdm
 
-login('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')
+login('YOUR_HF_TOKEN')
 
 model_checkpoint = "Helsinki-NLP/opus-mt-en-eu"
 finetuned_path   = "./results/lora_v2/opus-mt-en-eu-lora-v2/checkpoint-9375"

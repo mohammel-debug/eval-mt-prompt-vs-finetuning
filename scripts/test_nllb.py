@@ -6,7 +6,7 @@ import evaluate
 from tqdm import tqdm
 import json
 
-login('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')
+login('YOUR_HF_TOKEN')
 
 # Load FLORES-200
 flores_en = load_dataset("openlanguagedata/flores_plus", "eng_Latn")

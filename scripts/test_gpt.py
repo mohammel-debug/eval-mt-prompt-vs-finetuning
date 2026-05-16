@@ -6,14 +6,14 @@ import evaluate
 from tqdm import tqdm
 
 # Login
-login('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')
+login('YOUR_HF_TOKEN')
 
 # Load FLORES-200
 flores_en = load_dataset("openlanguagedata/flores_plus", "eng_Latn")
 flores_eu = load_dataset("openlanguagedata/flores_plus", "eus_Latn")
 
 # OpenAI client
-client = OpenAI(api_key="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")
+client = OpenAI(api_key="YOUR_OPENAI_KEY
 
 # Metrics
 metric_bleu = evaluate.load("sacrebleu")
