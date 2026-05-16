@@ -1,0 +1,141 @@
+import os
+import torch
+import numpy as np
+import evaluate
+from datasets import load_dataset
+from huggingface_hub import login
+from transformers import (
+    AutoTokenizer,
+    AutoModelForSeq2SeqLM,
+    Seq2SeqTrainingArguments,
+    Seq2SeqTrainer,
+    DataCollatorForSeq2Seq,
+)
+from peft import LoraConfig, get_peft_model, TaskType
+
+# HuggingFace login 
+login('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')
+
+# Load datasets
+flores_en = load_dataset("openlanguagedata/flores_plus", "eng_Latn")
+flores_eu = load_dataset("openlanguagedata/flores_plus", "eus_Latn")
+print(f"FLORES-200: {sum(len(flores_en[s]) for s in flores_en)} EN sentences")
+
+opus100 = load_dataset("Helsinki-NLP/opus-100", "en-eu")
+print(f"OPUS-100 : {sum(len(opus100[s]) for s in opus100)} pairs")
+
+# Tokenizer & preprocessing 
+model_checkpoint = "Helsinki-NLP/opus-mt-en-eu"
+tokenizer = AutoTokenizer.from_pretrained(model_checkpoint)
+
+def preprocess_function(examples):
+    inputs = [ex["en"] for ex in examples["translation"]]
+    targets = [ex["eu"] for ex in examples["translation"]]
+    model_inputs = tokenizer(
+        inputs,
+        text_target=targets,
+        max_length=128,
+        truncation=True
+    )
+    return model_inputs
+
+opus100["train"] = opus100["train"].shuffle(seed=42).select(range(50000))
+tokenized_opus = opus100.map(
+    preprocess_function,
+    batched=True,
+    remove_columns=opus100["train"].column_names
+)
+
+# Model + LoRA
+model = AutoModelForSeq2SeqLM.from_pretrained(
+    model_checkpoint,
+    tie_word_embeddings=False
+)
+
+peft_config = LoraConfig(
+    task_type=TaskType.SEQ_2_SEQ_LM,
+    inference_mode=False,
+    r=16,
+    lora_alpha=32,
+    lora_dropout=0.1,
+    target_modules=["q_proj", "v_proj", "k_proj", "out_proj"]
+)
+
+model = get_peft_model(model, peft_config)
+model.print_trainable_parameters()
+
+# Metrics
+metric_bleu = evaluate.load("sacrebleu")
+metric_chrf = evaluate.load("chrf")
+
+def compute_metrics(eval_preds):
+    preds, labels = eval_preds
+    if isinstance(preds, tuple):
+        preds = preds[0]
+    decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
+    labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
+    decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
+    decoded_preds = [pred.strip() for pred in decoded_preds]
+    decoded_labels = [[label.strip()] for label in decoded_labels]
+    bleu = metric_bleu.compute(predictions=decoded_preds, references=decoded_labels)
+    chrf = metric_chrf.compute(predictions=decoded_preds, references=decoded_labels)
+    return {"bleu": round(bleu["score"], 4), "chrf": round(chrf["score"], 4)}
+
+# Training arguments 
+data_collator = DataCollatorForSeq2Seq(tokenizer, model=model)
+
+training_args = Seq2SeqTrainingArguments(
+    output_dir="./opus-mt-en-eu-lora-v2" ,
+    eval_strategy="steps",
+    eval_steps=100,
+    save_strategy="steps",
+    save_steps=100,
+    learning_rate=5e-4,
+    per_device_train_batch_size=16,
+    per_device_eval_batch_size=16,
+    weight_decay=0.01,
+    save_total_limit=3,
+    load_best_model_at_end=True,
+    metric_for_best_model="bleu",
+    greater_is_better=True,
+    num_train_epochs=3,
+    predict_with_generate=True,
+    fp16=True,
+    logging_steps=10,
+    logging_strategy="steps",
+    report_to="none",
+)
+
+
+#train_data = tokenized_opus["train"]
+#train_data = tokenized_opus["train"].shuffle(seed=42).select(range(100000))
+train_data = tokenized_opus["train"]
+
+trainer = Seq2SeqTrainer(
+    model=model,
+    args=training_args,
+    train_dataset=train_data,
+    eval_dataset=tokenized_opus["validation"],
+    data_collator=data_collator,
+    compute_metrics=compute_metrics,
+)
+
+# Auto-resume from checkpoint if exists 
+
+checkpoint_dir = "./opus-mt-en-eu-lora-v2"
+last_checkpoint = None
+
+if os.path.isdir(checkpoint_dir):
+    checkpoints = [
+        os.path.join(checkpoint_dir, d)
+        for d in os.listdir(checkpoint_dir)
+        if d.startswith("checkpoint-")
+    ]
+    if checkpoints:
+        last_checkpoint = max(checkpoints, key=os.path.getmtime)
+        print(f"Resuming from: {last_checkpoint}")
+    else:
+        print("No checkpoint found — starting from scratch")
+
+print("Starting training now!")
+trainer.train(resume_from_checkpoint=last_checkpoint)
